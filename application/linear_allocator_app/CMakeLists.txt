@@ -1,0 +1,2 @@
+add_executable(linear_allocator_app src/main.cpp)
+target_link_libraries(linear_allocator_app PRIVATE MemoryAllocations raylib)
