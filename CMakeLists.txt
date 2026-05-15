@@ -9,6 +9,7 @@ include(cmake/FetchRaylib.cmake)
 
 # Algorithms
 add_subdirectory(MemoryAllocations/linear_allocator)
+add_subdirectory(MemoryAllocations/stack_allocator)
 
 # Application
 add_subdirectory(application/linear_allocator_app)
