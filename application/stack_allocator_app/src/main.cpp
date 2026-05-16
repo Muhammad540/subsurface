@@ -1,6 +1,6 @@
 #include "raylib.h"
 #include "raymath.h"
-#include "linear_allocator.hpp"
+#include "stack_allocator.hpp"
 #include <vector>
 #include <cmath>
 #include <chrono>
@@ -23,12 +23,11 @@ int GetDeterministicRandom(int seed){
     seed = seed ^ (seed >> 15);
     return 10 + (std::abs(seed) % 90); 
 }
-
 volatile float dummy = 0;
 
-Arena g_arena;
-// setting aside a 50MB backing memory
-static unsigned char g_arena_memory[1024*1024*50];
+Stack m_stack;
+// setting aside a 50MB backing memory for stack allocator
+static unsigned char m_stack_memory[1024*1024*50];
 
 double RunVectorBench() {
     auto t0 = std::chrono::high_resolution_clock::now();
@@ -66,19 +65,20 @@ double RunVectorBench() {
     return (double)std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
 }
 
-double RunArenaBench() {
+
+double RunStackBench() {
     auto t0 = std::chrono::high_resolution_clock::now();
     float sum = 0;
-    
-    Position** sensor_data = (Position**)arena_alloc(&g_arena, NUM_EVENTS * sizeof(Position*));
-    int* event_sizes = (int*)arena_alloc(&g_arena, NUM_EVENTS*sizeof(int));
 
-    if (!sensor_data || !event_sizes) return 0;
+    Position** sensor_data = (Position**)stack_alloc(&m_stack, NUM_EVENTS * sizeof(Position*));
+    int* event_sizes = (int*)stack_alloc(&m_stack, NUM_EVENTS*sizeof(int));
+    
+    if (!sensor_data || !event_sizes) return 0; 
 
     for (int i = 0; i < NUM_EVENTS; i++) {
         int size = GetDeterministicRandom(i);
         event_sizes[i] = size;
-        sensor_data[i] = (Position*)arena_alloc(&g_arena, size*sizeof(Position));
+        sensor_data[i] = (Position*)stack_alloc(&m_stack, size*sizeof(Position));
 
         for(int j=0; j<size; j++){
             sensor_data[i][j] = { (float)i, 0.0f, 1.5f, 1.5f }; 
@@ -94,8 +94,8 @@ double RunArenaBench() {
     }
 
     dummy = sum;
-    arena_free_all(&g_arena); // Reset bump pointer
-    
+    stack_free_all(&m_stack);
+
     auto t1 = std::chrono::high_resolution_clock::now();
     return (double)std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
 }
@@ -104,22 +104,23 @@ double RunArenaBench() {
 int main(){
     const int screenWidth = 800;
     const int screenHeight = 450;
-    InitWindow(screenWidth, screenHeight, "Benchmark: std::vector vs Custom Linear Arena Allocator");
+    InitWindow(screenWidth, screenHeight, "Benchmark: std::vector vs Custom Stack Allocator");
 
-    arena_init(&g_arena, g_arena_memory, sizeof(g_arena_memory));
+    stack_init(&m_stack, m_stack_memory, sizeof(m_stack_memory));
+
 
     std::vector<double> vtimes;
-    std::vector<double> atimes;
+    std::vector<double> stimes;
 
     enum State {
         BenchVector,
-        BenchArena,
+        BenchStack,
         Done
     };
     State state = BenchVector;
     
     double avgVector = 0;
-    double avgArena = 0;
+    double avgStack = 0;
 
     // Animation
     Color bgColor = ColorLerp(DARKBLUE, BLACK, 0.69f);
@@ -138,18 +139,18 @@ int main(){
         if (state == BenchVector){
             vtimes.push_back(RunVectorBench());
             if(vtimes.size() == TOTAL_RUNS){
-                state = BenchArena;
+                state = BenchStack;
             }
-        } else if (state == BenchArena) {
-            atimes.push_back(RunArenaBench());
-            if (atimes.size() == TOTAL_RUNS){
+        } else if (state == BenchStack) {
+            stimes.push_back(RunStackBench());
+            if (stimes.size() == TOTAL_RUNS){
                 avgVector = 0;
-                avgArena = 0;
+                avgStack = 0;
                 for (double t : vtimes) avgVector += t;
-                for (double t : atimes) avgArena += t;
+                for (double t : stimes) avgStack += t;
                 
                 avgVector /= TOTAL_RUNS;
-                avgArena /= TOTAL_RUNS;
+                avgStack /= TOTAL_RUNS;
                 state = Done;
             }
         }
@@ -159,7 +160,7 @@ int main(){
 
         if (state != Done){
             DrawText("Benchmarking in progress...", 270, 250, 20, GRAY);
-            float speed = (state == BenchVector) ? ((float)vtimes.size()/TOTAL_RUNS)*0.5f : 0.5f + ((float)atimes.size()/TOTAL_RUNS) * 0.5f;
+            float speed = (state == BenchVector) ? ((float)vtimes.size()/TOTAL_RUNS)*0.5f : 0.5f + ((float)stimes.size()/TOTAL_RUNS) * 0.5f;
             float dt = GetFrameTime();
             for (int i = 0; i < STAR_COUNT; i++){
                 // Update star's timer
@@ -210,18 +211,18 @@ int main(){
             }
         } else {
             DrawText("Avg Execution Time", 270, 100, 30, WHITE);
-            int max_val = (avgVector>avgArena) ? avgVector : avgArena;
+            int max_val = (avgVector>avgStack) ? avgVector : avgStack;
 
             int h_vec = (int)(((float)avgVector / max_val) * 200);
-            int h_are = (int)(((float)avgArena / max_val) * 200);
+            int h_are = (int)(((float)avgStack / max_val) * 200);
 
             DrawRectangle(250, 400 - h_vec, 100, h_vec, ORANGE);
             DrawText("std::vector", 250, 410, 18, WHITE);
             DrawText(TextFormat("%.0f us", avgVector), 250, 380 - h_vec, 18, ORANGE);
 
             DrawRectangle(450, 400 - h_are, 100, h_are, GREEN);
-            DrawText("Linear Arena Allocator", 450, 410, 18, WHITE);
-            DrawText(TextFormat("%.0f us", avgArena), 450, 380 - h_are, 18, DARKGREEN);
+            DrawText("Stack Allocator", 450, 410, 18, WHITE);
+            DrawText(TextFormat("%.0f us", avgStack), 450, 380 - h_are, 18, DARKGREEN);
         }
 
         EndDrawing();

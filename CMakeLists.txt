@@ -13,3 +13,4 @@ add_subdirectory(MemoryAllocations/stack_allocator)
 
 # Application
 add_subdirectory(application/linear_allocator_app)
+add_subdirectory(application/stack_allocator_app)

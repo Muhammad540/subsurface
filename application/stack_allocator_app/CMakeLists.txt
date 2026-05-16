@@ -1,0 +1,2 @@
+add_executable(stack_allocator_app src/main.cpp)
+target_link_libraries(stack_allocator_app PRIVATE StackAllocator raylib)
